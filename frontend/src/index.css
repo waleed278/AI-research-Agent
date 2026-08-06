@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-stone-50 text-stone-900 antialiased;
+}
+
+/* react-markdown output inside .prose gets sane spacing without pulling in
+   the @tailwindcss/typography plugin for a project this small. */
+.prose h1 {
+  @apply mb-4 mt-6 text-2xl font-semibold;
+}
+.prose h2 {
+  @apply mb-3 mt-6 text-xl font-semibold;
+}
+.prose h3 {
+  @apply mb-2 mt-4 text-lg font-semibold;
+}
+.prose p {
+  @apply mb-4 leading-relaxed;
+}
+.prose ul {
+  @apply mb-4 list-disc pl-6;
+}
+.prose ol {
+  @apply mb-4 list-decimal pl-6;
+}
+.prose li {
+  @apply mb-1;
+}
+.prose a {
+  @apply text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-800;
+}
+.prose strong {
+  @apply font-semibold;
+}

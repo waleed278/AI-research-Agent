@@ -104,11 +104,26 @@ async def api_key(db_session: AsyncSession) -> tuple[ApiKey, str]:
 @pytest_asyncio.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async def override_get_db_session():
-        yield db_session
+        # Mirrors the real `get_db` dependency's commit-on-success semantics
+        # (app/db/session.py) -- without this, a row created via one request
+        # is only flushed, never committed, and `run_research_job`'s
+        # separate session/connection would never see it.
+        try:
+            yield db_session
+            await db_session.commit()
+        except Exception:
+            await db_session.rollback()
+            raise
+
+    # One shared instance per test, not one per request -- a fresh
+    # FakeRateLimitRedis() on every call would reset the counter on every
+    # request and the rate-limit test would never see a 429.
+    no_op_arq_redis = NoOpArqRedis()
+    fake_rate_limit_redis = FakeRateLimitRedis()
 
     app.dependency_overrides[get_db_session] = override_get_db_session
-    app.dependency_overrides[get_arq_redis] = lambda: NoOpArqRedis()
-    app.dependency_overrides[get_rate_limit_redis] = lambda: FakeRateLimitRedis()
+    app.dependency_overrides[get_arq_redis] = lambda: no_op_arq_redis
+    app.dependency_overrides[get_rate_limit_redis] = lambda: fake_rate_limit_redis
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

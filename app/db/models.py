@@ -10,6 +10,18 @@ from sqlalchemy.sql import func
 from app.db.base import Base
 
 
+def _enum_values(enum_cls: type[enum.StrEnum]) -> list[str]:
+    """SQLAlchemy's `Enum` type stores the Python enum *member name* by
+    default (e.g. "QUEUED"), not `.value` ("queued") -- which would silently
+    diverge from the lowercase values used everywhere else (API JSON,
+    Alembic's hand-written `postgresql.ENUM(...)` in the initial migration,
+    and every `JobStatus.X.value` comparison in this codebase). Passed as
+    `values_callable` on every `Enum(...)` column below so the database
+    representation matches `.value`, not `.name`.
+    """
+    return [member.value for member in enum_cls]
+
+
 class JobStatus(enum.StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -57,9 +69,11 @@ class ResearchJob(Base):
     max_sources: Mapped[int] = mapped_column(default=8)
 
     status: Mapped[JobStatus] = mapped_column(
-        Enum(JobStatus, name="job_status"), default=JobStatus.QUEUED, index=True
+        Enum(JobStatus, name="job_status", values_callable=_enum_values), default=JobStatus.QUEUED, index=True
     )
-    phase: Mapped[JobPhase | None] = mapped_column(Enum(JobPhase, name="job_phase"), nullable=True)
+    phase: Mapped[JobPhase | None] = mapped_column(
+        Enum(JobPhase, name="job_phase", values_callable=_enum_values), nullable=True
+    )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     total_tokens: Mapped[int] = mapped_column(default=0)
@@ -90,8 +104,10 @@ class TraceEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("research_jobs.id"), index=True)
     seq: Mapped[int]
-    phase: Mapped[JobPhase] = mapped_column(Enum(JobPhase, name="job_phase"))
-    event_type: Mapped[TraceEventType] = mapped_column(Enum(TraceEventType, name="trace_event_type"))
+    phase: Mapped[JobPhase] = mapped_column(Enum(JobPhase, name="job_phase", values_callable=_enum_values))
+    event_type: Mapped[TraceEventType] = mapped_column(
+        Enum(TraceEventType, name="trace_event_type", values_callable=_enum_values)
+    )
     payload: Mapped[dict] = mapped_column(JSONB, default=dict)
     tokens_used: Mapped[int] = mapped_column(default=0)
     cost_usd: Mapped[float] = mapped_column(default=0.0)

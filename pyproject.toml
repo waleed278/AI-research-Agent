@@ -53,6 +53,12 @@ warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Session-scoped so the session-scoped `db_engine` fixture (tests/integration/conftest.py)
+# and every async test run on the *same* event loop -- asyncpg connections are bound to
+# the loop they were created on, so a per-test loop (pytest-asyncio's default) breaks a
+# session-scoped async engine with "another operation is in progress" errors.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 
 [build-system]

@@ -1,4 +1,4 @@
-.PHONY: install lint typecheck test test-cov eval eval-mock run worker migrate compose-up compose-down
+.PHONY: install lint typecheck test test-cov eval eval-mock run worker migrate compose-up compose-down frontend-test frontend-lint
 
 install:
 	uv sync
@@ -37,3 +37,13 @@ compose-up:
 
 compose-down:
 	docker compose -f infra/docker-compose.yml down
+
+# No Node.js needed on the host -- these build the same intermediate Docker
+# stage the production image uses (see frontend/Dockerfile) and run inside it.
+frontend-test:
+	docker build --target build -t research-agent-frontend-build ./frontend
+	docker run --rm research-agent-frontend-build npx vitest run
+
+frontend-lint:
+	docker build --target build -t research-agent-frontend-build ./frontend
+	docker run --rm research-agent-frontend-build npx eslint .

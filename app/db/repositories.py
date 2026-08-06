@@ -68,6 +68,7 @@ class ResearchJobRepository:
         stmt = (
             select(ResearchJob)
             .where(ResearchJob.api_key_id == api_key_id)
+            .options(selectinload(ResearchJob.result))
             .order_by(ResearchJob.created_at.desc())
             .limit(limit)
         )

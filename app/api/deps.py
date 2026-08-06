@@ -19,9 +19,16 @@ def get_rate_limit_redis(request: Request) -> Redis:
 
 
 async def get_current_api_key(
-    x_api_key: str = Header(..., alias="X-API-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
     session: AsyncSession = Depends(get_db_session),
 ) -> ApiKey:
+    """`x_api_key` is deliberately optional at the FastAPI parameter level:
+    a *required* `Header(...)` makes FastAPI reject a missing header with
+    422 (a request-validation error) before this function ever runs -- but
+    "no credentials supplied" is an authentication failure, not a malformed
+    request, and callers should see 401 either way."""
+    if not x_api_key:
+        raise UnauthorizedError("Missing or invalid API key")
     api_key = await ApiKeyRepository(session).get_by_raw_key(x_api_key)
     if api_key is None:
         raise UnauthorizedError("Missing or invalid API key")

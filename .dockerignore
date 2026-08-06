@@ -10,3 +10,4 @@ tests
 evals/reports
 docs
 *.md
+!README.md

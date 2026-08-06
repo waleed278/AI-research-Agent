@@ -17,14 +17,30 @@ down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+# create_type=False on all three: the types are created explicitly (once,
+# with checkfirst) at the top of upgrade() -- without this, SQLAlchemy also
+# tries to CREATE TYPE implicitly the first time each enum is used as a
+# column type in create_table(), which fails with "type already exists".
 job_status = postgresql.ENUM(
-    "queued", "running", "completed", "failed", "cancelled", name="job_status"
+    "queued", "running", "completed", "failed", "cancelled", name="job_status", create_type=False
 )
 job_phase = postgresql.ENUM(
-    "planning", "researching", "critiquing", "synthesizing", "done", name="job_phase"
+    "planning",
+    "researching",
+    "critiquing",
+    "synthesizing",
+    "done",
+    name="job_phase",
+    create_type=False,
 )
 trace_event_type = postgresql.ENUM(
-    "phase_change", "llm_call", "tool_call", "tool_result", "error", name="trace_event_type"
+    "phase_change",
+    "llm_call",
+    "tool_call",
+    "tool_result",
+    "error",
+    name="trace_event_type",
+    create_type=False,
 )
 
 
@@ -40,7 +56,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("key_hash", sa.String(length=64), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_api_keys"),
         sa.UniqueConstraint("key_hash", name="uq_api_keys_key_hash"),
     )
@@ -58,10 +74,10 @@ def upgrade() -> None:
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("total_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("total_cost_usd", sa.Float(), nullable=False, server_default="0"),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
-        sa.Column("started_at", sa.DateTime(), nullable=True),
-        sa.Column("completed_at", sa.DateTime(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(
             ["api_key_id"], ["api_keys.id"], name="fk_research_jobs_api_key_id_api_keys"
         ),
@@ -81,7 +97,7 @@ def upgrade() -> None:
         sa.Column("payload", postgresql.JSONB(), nullable=False, server_default="{}"),
         sa.Column("tokens_used", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("cost_usd", sa.Float(), nullable=False, server_default="0"),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(
             ["job_id"], ["research_jobs.id"], name="fk_trace_events_job_id_research_jobs"
         ),
@@ -95,7 +111,7 @@ def upgrade() -> None:
         sa.Column("job_id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("report_markdown", sa.Text(), nullable=False),
         sa.Column("sources", postgresql.JSONB(), nullable=False, server_default="[]"),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.func.now(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.ForeignKeyConstraint(
             ["job_id"], ["research_jobs.id"], name="fk_research_results_job_id_research_jobs"
         ),

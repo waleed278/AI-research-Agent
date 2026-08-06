@@ -56,12 +56,22 @@ each non-obvious engineering choice (ADRs).
 - **Full observability.** Every LLM call, tool call, and phase change is
   persisted as a `TraceEvent` *as it happens* (not batched at the end), so
   a failed job still leaves a full trace of what it did.
+- **A real web UI**, not just curl. `frontend/` streams live agent progress
+  via a hand-written SSE-over-`fetch` reader (browsers' `EventSource` can't
+  send the API key header), backed by React Query polling as the actual
+  source of truth so the UI never gets stuck if the stream drops
+  ([ADR 0007](docs/decisions/0007-frontend-sse-and-proxy.md)).
 
 ## Tech stack
 
-Python 3.11+ / FastAPI / SQLAlchemy 2.0 (async) + PostgreSQL / arq + Redis /
-OpenAI API (structured outputs + tool calling) / Tavily (pluggable, mock
-provider included) / pytest / ruff + mypy / Docker Compose / GitHub Actions.
+**Backend**: Python 3.11+ / FastAPI / SQLAlchemy 2.0 (async) + PostgreSQL /
+arq + Redis / OpenAI API (structured outputs + tool calling) / Tavily
+(pluggable, mock provider included) / pytest / ruff + mypy.
+
+**Frontend**: React + TypeScript / Vite / Tailwind CSS / TanStack React
+Query / react-markdown / Vitest.
+
+**Infra**: Docker Compose / GitHub Actions.
 
 ## Quickstart
 
@@ -96,6 +106,28 @@ Without a real `OPENAI_API_KEY`/`TAVILY_API_KEY`, set `SEARCH_PROVIDER=mock`
 the deterministic mock search provider -- the OpenAI key is still required
 for the LLM calls themselves.
 
+## Web UI
+
+`make compose-up` (or `docker compose -f infra/docker-compose.yml up -d
+--build`) also builds and starts the frontend, served at
+**http://localhost:3000**. Its nginx container reverse-proxies `/api/*` to
+the backend, so no separate configuration is needed. On first load, enter
+an API key (the seeded dev default is `dev-local-key`) when prompted, then
+ask a research question -- you'll see live phase/tool-call progress while
+it runs, then the rendered, cited report.
+
+For frontend-only local development (hot reload against a locally-running
+backend):
+
+```bash
+cd frontend
+cp .env.example .env   # set VITE_API_BASE_URL=http://localhost:8000/api
+docker run --rm -it -v "$PWD:/app" -w /app -p 5173:5173 node:20-alpine sh -c "npm install && npm run dev -- --host"
+```
+
+(No Node.js is required on the host -- this project builds and tests the
+frontend entirely through Docker; see `make frontend-test` below.)
+
 ## Testing & evaluation
 
 ```bash
@@ -112,6 +144,11 @@ every push, fully mocked -- no secrets required, zero cost. The real
 `eval-live` job is manual (`workflow_dispatch`) by design; see
 [ADR 0006](docs/decisions/0006-eval-strategy.md) for why.
 
+```bash
+make frontend-lint   # eslint, run inside Docker (no local Node.js needed)
+make frontend-test   # vitest (unit + component tests), same way
+```
+
 ## Project layout
 
 ```
@@ -125,6 +162,7 @@ app/
   workers/    the arq worker entrypoint
 evals/        golden dataset, LLM-as-judge, metrics, the eval CLI
 tests/        unit tests (mocked) + integration tests (real Postgres, mocked LLM)
+frontend/     React/TS/Vite web UI (api client, SSE reader, hooks, components)
 infra/        Dockerfile, docker-compose.yml
 docs/         architecture.md + ADRs
 ```

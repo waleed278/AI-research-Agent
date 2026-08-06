@@ -4,12 +4,14 @@ from contextlib import asynccontextmanager
 from arq import create_pool
 from arq.connections import RedisSettings
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import from_url as redis_from_url
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app.api.middleware import RequestContextMiddleware
 from app.api.v1.router import api_router
+from app.api.v1.routes import health
 from app.core.config import get_settings
 from app.core.exceptions import AppError, app_error_handler
 from app.core.logging import configure_logging, get_logger
@@ -34,6 +36,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
     app = FastAPI(
         title="AI Research & Report Agent",
         description=(
@@ -44,6 +47,17 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Only needed for a frontend calling this API directly from a different
+    # origin (e.g. local `vite dev`) -- the Docker Compose frontend instead
+    # reverse-proxies /api through its own nginx, so the browser never
+    # crosses origins there (see frontend/nginx.conf).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allowed_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(RequestContextMiddleware)
     app.add_exception_handler(AppError, app_error_handler)
 
@@ -62,6 +76,7 @@ def create_app() -> FastAPI:
             media_type="application/problem+json",
         )
 
+    app.include_router(health.router)
     app.include_router(api_router, prefix="/api/v1")
     return app
 

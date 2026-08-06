@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     api_key_rate_limit_per_minute: int = 10
     dev_seed_api_key: str = "dev-local-key"
 
+    # CORS: only needed when a browser frontend calls the API directly from
+    # a different origin (local `vite dev`). The Docker Compose deployment's
+    # frontend container reverse-proxies /api instead (see frontend/nginx.conf),
+    # so the browser only ever sees one origin there and CORS doesn't apply.
+    cors_allowed_origins: list[str] = ["http://localhost:5173"]
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"

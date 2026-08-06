@@ -1,4 +1,6 @@
-from sqlalchemy import MetaData
+from datetime import datetime
+
+from sqlalchemy import DateTime, MetaData
 from sqlalchemy.orm import DeclarativeBase
 
 # Explicit naming convention so Alembic autogenerate produces stable,
@@ -15,3 +17,9 @@ NAMING_CONVENTION = {
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+    # Every `Mapped[datetime]` column is TIMESTAMPTZ, not the Postgres
+    # default TIMESTAMP WITHOUT TIME ZONE -- application code stores
+    # timezone-aware UTC datetimes (`datetime.now(UTC)`) everywhere, and a
+    # naive column silently rejects those at the driver level.
+    type_annotation_map = {datetime: DateTime(timezone=True)}
