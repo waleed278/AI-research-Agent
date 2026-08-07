@@ -1,7 +1,7 @@
 import pytest
 
 from app.agent.orchestrator import Orchestrator
-from app.agent.state import CriticVerdict, PlannerOutput, SubQuestion, SynthesizerOutput
+from app.agent.state import AttachmentInput, CriticVerdict, PlannerOutput, SubQuestion, SynthesizerOutput
 from app.core.config import Settings
 from app.core.exceptions import AgentRunLimitExceeded
 from app.llm.schemas import ChatResult
@@ -32,7 +32,7 @@ async def test_orchestrator_raises_when_token_budget_exceeded(fake_llm: FakeLLMC
     )
     # make_usage() reports 15 tokens per call -- a budget of 5 is blown by the planner call alone.
     settings = _settings(agent_max_tokens_per_job=5)
-    orchestrator = Orchestrator(llm=fake_llm, registry=_registry(), settings=settings)
+    orchestrator = Orchestrator(llm=fake_llm, model="gpt-4o-mini", registry=_registry(), settings=settings)
 
     with pytest.raises(AgentRunLimitExceeded, match="token budget"):
         await orchestrator.run(query=QUERY, max_iterations=5, max_sources=5)
@@ -54,7 +54,7 @@ async def test_orchestrator_happy_path_produces_cited_report(fake_llm: FakeLLMCl
     )
 
     settings = _settings(agent_max_tokens_per_job=100_000, agent_max_revision_loops=1)
-    orchestrator = Orchestrator(llm=fake_llm, registry=_registry(), settings=settings)
+    orchestrator = Orchestrator(llm=fake_llm, model="gpt-4o-mini", registry=_registry(), settings=settings)
 
     result = await orchestrator.run(query=QUERY, max_iterations=5, max_sources=5)
 
@@ -86,7 +86,7 @@ async def test_orchestrator_runs_a_revision_loop_when_critic_finds_gaps(fake_llm
     )
 
     settings = _settings(agent_max_tokens_per_job=100_000, agent_max_revision_loops=1)
-    orchestrator = Orchestrator(llm=fake_llm, registry=_registry(), settings=settings)
+    orchestrator = Orchestrator(llm=fake_llm, model="gpt-4o-mini", registry=_registry(), settings=settings)
 
     result = await orchestrator.run(query=QUERY, max_iterations=5, max_sources=5)
 
@@ -94,3 +94,37 @@ async def test_orchestrator_runs_a_revision_loop_when_critic_finds_gaps(fake_llm
     # planner + 2 chat turns + critic + synthesizer
     assert len(fake_llm.chat_calls) == 2
     assert len(fake_llm.structured_calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_seeds_evidence_from_attachments_before_planning(
+    fake_llm: FakeLLMClient,
+) -> None:
+    """Uploaded documents (app/services/uploads_service.py) must be citable
+    sources from the start, not something the research loop has to
+    rediscover -- and the planner should be told they exist."""
+    fake_llm.queue_structured(
+        "PlannerOutput",
+        PlannerOutput(sub_questions=[SubQuestion(question="q1", rationale="r")]),
+    )
+    fake_llm.queue_chat(_chat_done("done"))
+    fake_llm.queue_structured(
+        "CriticVerdict",
+        CriticVerdict(coverage_ok=True, grounding_ok=True, gaps=[], revise_queries=[], rationale="fine"),
+    )
+    fake_llm.queue_structured(
+        "SynthesizerOutput", SynthesizerOutput(report_markdown="# Report\n\nPer the attached doc [1].")
+    )
+
+    settings = _settings(agent_max_tokens_per_job=100_000)
+    orchestrator = Orchestrator(llm=fake_llm, model="gpt-4o-mini", registry=_registry(), settings=settings)
+    attachments = [AttachmentInput(filename="background.txt", text="important background info")]
+
+    result = await orchestrator.run(
+        query=QUERY, max_iterations=5, max_sources=5, attachments=attachments
+    )
+
+    assert any(s.url == "upload://background.txt" and s.id == 1 for s in result.sources)
+    # The planner call is the first structured call -- confirm it was told about the attachment.
+    planner_messages = fake_llm.structured_calls[0]
+    assert "background.txt" in str(planner_messages)

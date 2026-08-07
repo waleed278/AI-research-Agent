@@ -17,6 +17,9 @@ evals/reports/*.json
 !evals/reports/.gitkeep
 *.db
 *.sqlite3
+.data/
 .DS_Store
 .idea/
 .vscode/
+node_modules/
+*.tsbuildinfo

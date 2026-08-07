@@ -14,10 +14,36 @@ export type TraceEventType =
   | "tool_result"
   | "error";
 
+// Mirrors app.db.models.LlmProvider.
+export type LlmProvider = "openai" | "gemini" | "anthropic";
+
+// Mirrors SUPPORTED_MODELS / DEFAULT_MODEL_BY_PROVIDER in app/core/config.py.
+// Kept in sync by hand -- update both sides if the backend's allow-list changes.
+export const SUPPORTED_MODELS: Record<LlmProvider, string[]> = {
+  openai: ["gpt-4o", "gpt-4o-mini"],
+  gemini: ["gemini-2.0-flash", "gemini-1.5-pro"],
+  anthropic: ["claude-sonnet-5", "claude-haiku-4-5-20251001"],
+};
+
+export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProvider, string> = {
+  openai: "gpt-4o-mini",
+  gemini: "gemini-2.0-flash",
+  anthropic: "claude-haiku-4-5-20251001",
+};
+
+export const PROVIDER_LABELS: Record<LlmProvider, string> = {
+  openai: "OpenAI",
+  gemini: "Gemini",
+  anthropic: "Anthropic",
+};
+
 export interface ResearchJobCreateRequest {
   query: string;
+  provider: LlmProvider;
+  model?: string;
   max_iterations?: number;
   max_sources?: number;
+  attachment_ids?: string[];
 }
 
 export interface ResearchJobCreateResponse {
@@ -39,6 +65,8 @@ export interface ResearchResultResponse {
 export interface ResearchJobResponse {
   id: string;
   query: string;
+  llm_provider: LlmProvider;
+  llm_model: string;
   status: JobStatus;
   phase: JobPhase | null;
   error: string | null;
@@ -78,3 +106,75 @@ export interface JobStatusEventPayload {
 export type JobEventMessage =
   | { event: TraceEventType; data: JobTraceEventPayload }
   | { event: "job_status"; data: JobStatusEventPayload };
+
+// --- Auth (mirrors app/schemas/auth.py) ---
+
+export interface SignupRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface UserResponse {
+  id: string;
+  email: string;
+  created_at: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  user: UserResponse;
+}
+
+// --- Developer API keys (mirrors app/schemas/api_keys.py) ---
+
+export interface CreateApiKeyRequest {
+  name: string;
+}
+
+export interface ApiKeyCreateResponse {
+  id: string;
+  name: string;
+  raw_key: string;
+  created_at: string;
+}
+
+export interface ApiKeyResponse {
+  id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+// --- LLM credentials, i.e. BYOK provider keys (mirrors app/schemas/credentials.py) ---
+
+export interface AddLlmCredentialRequest {
+  provider: LlmProvider;
+  api_key: string;
+  label?: string;
+}
+
+export interface LlmCredentialResponse {
+  id: string;
+  provider: LlmProvider;
+  label: string | null;
+  is_valid: boolean;
+  created_at: string;
+  last_validated_at: string | null;
+}
+
+// --- Uploads (mirrors app/schemas/uploads.py) ---
+
+export interface UploadedFileResponse {
+  id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  extracted_chars: number;
+  created_at: string;
+}

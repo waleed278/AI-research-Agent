@@ -3,14 +3,14 @@ import { formatRelativeTime } from "../lib/time";
 import { StatusBadge } from "./StatusBadge";
 
 interface SidebarProps {
-  apiKey: string;
+  token: string;
   selectedJobId: string | null;
   onSelectJob: (jobId: string) => void;
   onNewJob: () => void;
 }
 
-export function Sidebar({ apiKey, selectedJobId, onSelectJob, onNewJob }: SidebarProps) {
-  const { data, isLoading, isError } = useJobsList(apiKey);
+export function Sidebar({ token, selectedJobId, onSelectJob, onNewJob }: SidebarProps) {
+  const { data, isLoading, isError } = useJobsList(token);
 
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col border-r border-stone-200 bg-stone-100/60">

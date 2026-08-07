@@ -8,9 +8,11 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.api.deps import get_arq_redis, get_db_session, get_rate_limit_redis
-from app.core.security import generate_api_key, hash_api_key
+from app.core.crypto import encrypt_secret
+from app.core.jwt import create_access_token
+from app.core.security import generate_api_key, hash_api_key, hash_password
 from app.db.base import Base
-from app.db.models import ApiKey
+from app.db.models import ApiKey, LlmCredential, LlmProvider, User
 from app.main import app
 
 TEST_DATABASE_URL = os.environ.get(
@@ -92,13 +94,56 @@ async def db_session(test_session_factory) -> AsyncGenerator[AsyncSession, None]
 
 
 @pytest_asyncio.fixture
-async def api_key(db_session: AsyncSession) -> tuple[ApiKey, str]:
+async def user(db_session: AsyncSession) -> User:
+    new_user = User(
+        id=uuid.uuid4(),
+        email=f"test-{uuid.uuid4().hex[:10]}@example.com",
+        password_hash=hash_password("correct horse battery staple"),
+    )
+    db_session.add(new_user)
+    await db_session.commit()
+    await db_session.refresh(new_user)
+    return new_user
+
+
+@pytest_asyncio.fixture
+async def api_key(db_session: AsyncSession, user: User) -> tuple[ApiKey, str]:
     raw_key = generate_api_key()
-    key = ApiKey(id=uuid.uuid4(), name="test-key", key_hash=hash_api_key(raw_key))
+    key = ApiKey(id=uuid.uuid4(), user_id=user.id, name="test-key", key_hash=hash_api_key(raw_key))
     db_session.add(key)
     await db_session.commit()
     await db_session.refresh(key)
     return key, raw_key
+
+
+@pytest_asyncio.fixture
+async def llm_credential(db_session: AsyncSession, user: User) -> LlmCredential:
+    """Seeds a valid-looking OpenAI credential directly at the DB layer --
+    the credentials *API* (add/validate/list/delete) has its own dedicated
+    tests; this fixture exists so job-creation tests can satisfy the "a
+    valid credential must exist for the requested provider" invariant
+    (see app/services/research_service.py::create_research_job) without
+    depending on that other feature's endpoint."""
+    credential = LlmCredential(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        provider=LlmProvider.OPENAI,
+        encrypted_key=encrypt_secret("sk-test-not-a-real-key"),
+        label="test credential",
+        is_valid=True,
+    )
+    db_session.add(credential)
+    await db_session.commit()
+    await db_session.refresh(credential)
+    return credential
+
+
+def bearer_headers(user: User) -> dict[str, str]:
+    """JWT auth header for `user` -- the counterpart to the `X-API-Key`
+    header tests build from the `api_key` fixture. Both resolve to the same
+    `User` via app.api.deps.get_current_user's dual-auth logic."""
+    token = create_access_token(user.id, user.email)
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest_asyncio.fixture

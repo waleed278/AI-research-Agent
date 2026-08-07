@@ -7,3 +7,4 @@ concrete facts, numbers, dates, or named entities over vague ones.
 
 User research query:
 {query}
+{attachments}

@@ -46,6 +46,18 @@ class SynthesizerOutput(BaseModel):
 # --- evidence / trace bookkeeping ------------------------------------------
 
 
+class AttachmentInput(BaseModel):
+    """A user-uploaded document's extracted text, handed to the orchestrator
+    to seed as evidence before research starts (see
+    Orchestrator._seed_attachments and app/services/uploads_service.py for
+    where `text` actually comes from). Deliberately a plain agent-layer type
+    rather than the `UploadedFile` ORM model -- the worker does that
+    translation so agent code stays free of persistence concerns."""
+
+    filename: str
+    text: str
+
+
 class EvidenceItem(BaseModel):
     id: int
     url: str

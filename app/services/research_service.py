@@ -7,9 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.state import TraceSink
 from app.core.config import Settings, get_settings
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, InvalidRequestError, NotFoundError
 from app.db.models import JobPhase, JobStatus, ResearchJob, TraceEventType
-from app.db.repositories import ResearchJobRepository, TraceEventRepository
+from app.db.repositories import (
+    LlmCredentialRepository,
+    ResearchJobRepository,
+    TraceEventRepository,
+    UploadedFileRepository,
+)
 from app.schemas.research import (
     ResearchJobCreateRequest,
     ResearchJobResponse,
@@ -82,44 +87,56 @@ class DbTraceSink(TraceSink):
 async def create_research_job(
     session: AsyncSession,
     arq_redis: ArqRedis,
-    api_key_id: uuid.UUID,
+    user_id: uuid.UUID,
     request: ResearchJobCreateRequest,
     settings: Settings | None = None,
 ) -> ResearchJob:
     settings = settings or get_settings()
+
+    credential = await LlmCredentialRepository(session).get_for_provider(user_id, request.provider)
+    if credential is None or not credential.is_valid:
+        raise InvalidRequestError(
+            f"No valid {request.provider.value} credential configured for this account. "
+            "Add one under account settings before starting a job with this provider."
+        )
+
     jobs = ResearchJobRepository(session)
     job = await jobs.create(
-        api_key_id=api_key_id,
+        user_id=user_id,
         query=request.query,
         max_iterations=request.max_iterations or settings.agent_max_tool_steps,
         max_sources=request.max_sources or 8,
+        llm_provider=request.provider,
+        llm_model=request.model or "",
     )
+
+    if request.attachment_ids:
+        uploads = UploadedFileRepository(session)
+        owned_files = await uploads.get_owned_many(request.attachment_ids, user_id)
+        await uploads.attach_to_job(owned_files, job.id)
+
     await session.flush()
     await arq_redis.enqueue_job("run_research_job", job_id=str(job.id))
     return job
 
 
-async def get_research_job(
-    session: AsyncSession, job_id: uuid.UUID, api_key_id: uuid.UUID
-) -> ResearchJob:
+async def get_research_job(session: AsyncSession, job_id: uuid.UUID, user_id: uuid.UUID) -> ResearchJob:
     jobs = ResearchJobRepository(session)
-    job = await jobs.get(job_id, api_key_id=api_key_id)
+    job = await jobs.get(job_id, user_id=user_id)
     if job is None:
         raise NotFoundError(f"No research job with id {job_id}")
     return job
 
 
 async def list_research_jobs(
-    session: AsyncSession, api_key_id: uuid.UUID, limit: int, before: datetime | None
+    session: AsyncSession, user_id: uuid.UUID, limit: int, before: datetime | None
 ) -> list[ResearchJob]:
     jobs = ResearchJobRepository(session)
-    return await jobs.list_for_key(api_key_id, limit=limit, before=before)
+    return await jobs.list_for_user(user_id, limit=limit, before=before)
 
 
-async def cancel_research_job(
-    session: AsyncSession, job_id: uuid.UUID, api_key_id: uuid.UUID
-) -> ResearchJob:
-    job = await get_research_job(session, job_id, api_key_id)
+async def cancel_research_job(session: AsyncSession, job_id: uuid.UUID, user_id: uuid.UUID) -> ResearchJob:
+    job = await get_research_job(session, job_id, user_id)
     if job.status != JobStatus.QUEUED:
         raise ConflictError(f"Job {job_id} is '{job.status.value}' and can no longer be cancelled")
     jobs = ResearchJobRepository(session)
@@ -137,6 +154,8 @@ def to_response(job: ResearchJob) -> ResearchJobResponse:
     return ResearchJobResponse(
         id=job.id,
         query=job.query,
+        llm_provider=job.llm_provider,
+        llm_model=job.llm_model,
         status=job.status,
         phase=job.phase,
         error=job.error,

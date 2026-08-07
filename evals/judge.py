@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
 from app.agent.state import EvidenceItem
-from app.llm.client import LLMClient
+from app.llm.providers.openai_provider import OpenAIProvider
 from app.llm.schemas import StructuredResult
 
 _COVERAGE_PROMPT = """You are grading a research report for completeness against a \
@@ -55,7 +55,7 @@ class GroundednessVerdict(BaseModel):
 
 
 async def judge_coverage(
-    llm: LLMClient, judge_model: str, query: str, must_cover: list[str], report_markdown: str
+    llm: OpenAIProvider, judge_model: str, query: str, must_cover: list[str], report_markdown: str
 ) -> StructuredResult[CoverageVerdict]:
     prompt = _COVERAGE_PROMPT.format(
         query=query,
@@ -71,7 +71,7 @@ async def judge_coverage(
 
 
 async def judge_groundedness(
-    llm: LLMClient, judge_model: str, sources: list[EvidenceItem], report_markdown: str
+    llm: OpenAIProvider, judge_model: str, sources: list[EvidenceItem], report_markdown: str
 ) -> StructuredResult[GroundednessVerdict]:
     sources_block = (
         "\n\n".join(f"[{s.id}] {s.title}\n{s.snippet}" for s in sources) or "(no sources were gathered)"

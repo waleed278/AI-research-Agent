@@ -16,12 +16,12 @@ def make_usage(prompt_tokens: int = 10, completion_tokens: int = 5) -> LLMUsage:
 
 
 class FakeLLMClient:
-    """Drop-in replacement for `app.llm.client.LLMClient` used throughout the
-    unit/integration tests. Responses are pre-scripted per call, which lets a
-    test assert on exactly what the orchestrator does at each phase without
-    ever making a network call or depending on model non-determinism --
-    that determinism is what makes the *rest* of the agent pipeline testable
-    at all.
+    """Drop-in stand-in for any `app.llm.base.LLMProvider` implementation,
+    used throughout the unit/integration tests. Responses are pre-scripted
+    per call, which lets a test assert on exactly what the orchestrator does
+    at each phase without ever making a network call or depending on model
+    non-determinism -- that determinism is what makes the *rest* of the
+    agent pipeline testable at all.
     """
 
     def __init__(self) -> None:
@@ -63,7 +63,9 @@ class FakeLLMClient:
         response_model: type,
         temperature: float = 0.0,
     ) -> StructuredResult:
-        self.structured_calls.append({"model": model, "response_model": response_model.__name__})
+        self.structured_calls.append(
+            {"model": model, "response_model": response_model.__name__, "messages": messages}
+        )
         queue = self._structured_queue.get(response_model.__name__, [])
         if not queue:
             raise AssertionError(f"No queued structured response for {response_model.__name__}")
@@ -88,7 +90,7 @@ def fake_openai_chat_completion(
     completion_tokens: int = 5,
 ) -> SimpleNamespace:
     """Builds an object shaped enough like an OpenAI `ChatCompletion` for
-    `LLMClient.chat()` to parse -- used to test the LLM adapter itself
+    `OpenAIProvider.chat()` to parse -- used to test the LLM adapter itself
     (retry/parsing logic) without hitting the network."""
     message = SimpleNamespace(content=content, tool_calls=tool_calls or [])
     choice = SimpleNamespace(message=message, finish_reason=finish_reason)

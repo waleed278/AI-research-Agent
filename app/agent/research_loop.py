@@ -3,7 +3,7 @@ import json
 from app.agent.prompt_loader import load_prompt
 from app.agent.state import EvidenceStore, TraceSink
 from app.db.models import JobPhase
-from app.llm.client import LLMClient
+from app.llm.base import LLMProvider
 from app.tools.base import ToolResult
 from app.tools.registry import ToolRegistry
 
@@ -18,7 +18,7 @@ class ResearchLoopResult:
 
 async def run_research_loop(
     *,
-    llm: LLMClient,
+    llm: LLMProvider,
     model: str,
     registry: ToolRegistry,
     query: str,

@@ -9,7 +9,7 @@ import type { JobEventMessage } from "../api/types";
  * running") -- there's no reason to open a stream for a job that's already
  * finished and is just being viewed from history.
  */
-export function useJobEvents(apiKey: string, jobId: string | null, active: boolean) {
+export function useJobEvents(token: string, jobId: string | null, active: boolean) {
   const [events, setEvents] = useState<JobEventMessage[]>([]);
   const currentJobId = useRef(jobId);
 
@@ -17,9 +17,9 @@ export function useJobEvents(apiKey: string, jobId: string | null, active: boole
     setEvents([]);
     currentJobId.current = jobId;
 
-    if (!jobId || !active || !apiKey) return;
+    if (!jobId || !active || !token) return;
 
-    const unsubscribe = streamJobEvents(apiKey, jobId, {
+    const unsubscribe = streamJobEvents(token, jobId, {
       onEvent: (message) => {
         // Guards against a stale subscription's callback firing after the
         // user has already switched to a different job.
@@ -32,7 +32,7 @@ export function useJobEvents(apiKey: string, jobId: string | null, active: boole
     });
 
     return unsubscribe;
-  }, [apiKey, jobId, active]);
+  }, [token, jobId, active]);
 
   return events;
 }

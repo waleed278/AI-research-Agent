@@ -4,11 +4,11 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from openai import APITimeoutError, RateLimitError
+from openai import APITimeoutError, AuthenticationError, RateLimitError
 from pydantic import BaseModel
 
-from app.core.config import Settings
-from app.llm.client import LLMClient, StructuredOutputError
+from app.llm.base import InvalidCredentialError
+from app.llm.providers.openai_provider import OpenAIProvider, StructuredOutputError
 from tests.conftest import fake_openai_chat_completion, fake_openai_parsed_completion
 
 
@@ -29,8 +29,8 @@ def _no_real_sleeping(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(asyncio, "sleep", instant_sleep)
 
 
-def _client() -> LLMClient:
-    return LLMClient(Settings(openai_api_key="test-key"))
+def _provider() -> OpenAIProvider:
+    return OpenAIProvider(api_key="test-key")
 
 
 def _dummy_request() -> httpx.Request:
@@ -39,7 +39,7 @@ def _dummy_request() -> httpx.Request:
 
 @pytest.mark.asyncio
 async def test_chat_retries_on_rate_limit_then_succeeds() -> None:
-    client = _client()
+    provider = _provider()
     success = fake_openai_chat_completion(content="hello")
     mock_create: Any = AsyncMock(
         side_effect=[
@@ -47,9 +47,9 @@ async def test_chat_retries_on_rate_limit_then_succeeds() -> None:
             success,
         ]
     )
-    client._client.chat.completions.create = mock_create
+    provider._client.chat.completions.create = mock_create
 
-    result = await client.chat(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
+    result = await provider.chat(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
 
     assert result.content == "hello"
     assert mock_create.call_count == 2
@@ -57,25 +57,25 @@ async def test_chat_retries_on_rate_limit_then_succeeds() -> None:
 
 @pytest.mark.asyncio
 async def test_chat_gives_up_after_exhausting_retries() -> None:
-    client = _client()
+    provider = _provider()
     mock_create: Any = AsyncMock(side_effect=APITimeoutError(request=_dummy_request()))
-    client._client.chat.completions.create = mock_create
+    provider._client.chat.completions.create = mock_create
 
     with pytest.raises(APITimeoutError):
-        await client.chat(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
+        await provider.chat(model="gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
 
     assert mock_create.call_count == 4  # stop_after_attempt(4)
 
 
 @pytest.mark.asyncio
 async def test_structured_returns_validated_pydantic_model() -> None:
-    client = _client()
+    provider = _provider()
     verdict = _Verdict(ok=True, reason="looks fine")
-    client._client.chat.completions.parse = AsyncMock(
+    provider._client.chat.completions.parse = AsyncMock(
         return_value=fake_openai_parsed_completion(parsed=verdict)
     )
 
-    result = await client.structured(
+    result = await provider.structured(
         model="gpt-4o", messages=[{"role": "system", "content": "x"}], response_model=_Verdict
     )
 
@@ -85,7 +85,7 @@ async def test_structured_returns_validated_pydantic_model() -> None:
 
 @pytest.mark.asyncio
 async def test_structured_repairs_once_on_incomplete_response() -> None:
-    client = _client()
+    provider = _provider()
     verdict = _Verdict(ok=False, reason="needs more evidence")
     mock_parse: Any = AsyncMock(
         side_effect=[
@@ -93,9 +93,9 @@ async def test_structured_repairs_once_on_incomplete_response() -> None:
             fake_openai_parsed_completion(parsed=verdict),
         ]
     )
-    client._client.chat.completions.parse = mock_parse
+    provider._client.chat.completions.parse = mock_parse
 
-    result = await client.structured(
+    result = await provider.structured(
         model="gpt-4o", messages=[{"role": "system", "content": "x"}], response_model=_Verdict
     )
 
@@ -106,28 +106,66 @@ async def test_structured_repairs_once_on_incomplete_response() -> None:
 
 @pytest.mark.asyncio
 async def test_structured_raises_after_repair_still_fails() -> None:
-    client = _client()
-    client._client.chat.completions.parse = AsyncMock(
+    provider = _provider()
+    provider._client.chat.completions.parse = AsyncMock(
         return_value=fake_openai_parsed_completion(parsed=None, finish_reason="length")
     )
 
     with pytest.raises(StructuredOutputError):
-        await client.structured(
+        await provider.structured(
             model="gpt-4o", messages=[{"role": "system", "content": "x"}], response_model=_Verdict
         )
 
 
 @pytest.mark.asyncio
 async def test_structured_raises_on_refusal_without_retry() -> None:
-    client = _client()
+    provider = _provider()
     mock_parse: Any = AsyncMock(
         return_value=fake_openai_parsed_completion(parsed=None, refusal="cannot comply")
     )
-    client._client.chat.completions.parse = mock_parse
+    provider._client.chat.completions.parse = mock_parse
 
     with pytest.raises(StructuredOutputError, match="refused"):
-        await client.structured(
+        await provider.structured(
             model="gpt-4o", messages=[{"role": "system", "content": "x"}], response_model=_Verdict
         )
 
     assert mock_parse.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_validate_succeeds_when_the_key_is_accepted() -> None:
+    provider = _provider()
+
+    async def fake_page():
+        yield object()
+
+    # `models.list()` on the real SDK returns an async-iterable page
+    # directly (confirmed by exercising it live against a bad key) rather
+    # than a coroutine to await first -- a plain callable matches that,
+    # where AsyncMock would instead wrap the return value in a coroutine.
+    provider._client.models.list = lambda: fake_page()
+
+    await provider.validate()  # raises on failure; no exception here means success
+
+
+@pytest.mark.asyncio
+async def test_validate_raises_invalid_credential_error_when_the_key_is_rejected() -> None:
+    provider = _provider()
+    error = AuthenticationError(
+        "invalid key", response=httpx.Response(401, request=_dummy_request()), body=None
+    )
+
+    async def failing_page():
+        raise error
+        yield  # pragma: no cover - makes this a generator function; never reached
+
+    # See test_validate_succeeds_when_the_key_is_accepted: `.list()` returns
+    # the async-iterable directly, so the error must surface on iteration
+    # (`__anext__`), not at the call itself -- a plain callable models this,
+    # not AsyncMock(side_effect=...), which raises at await-time on a
+    # coroutine our code never awaits.
+    provider._client.models.list = lambda: failing_page()
+
+    with pytest.raises(InvalidCredentialError):
+        await provider.validate()

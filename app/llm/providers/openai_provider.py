@@ -4,14 +4,15 @@ from openai import (
     APIConnectionError,
     APITimeoutError,
     AsyncOpenAI,
+    AuthenticationError,
     InternalServerError,
     RateLimitError,
 )
 from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
+from app.llm.base import InvalidCredentialError
 from app.llm.pricing import calculate_cost_usd
 from app.llm.schemas import ChatResult, LLMUsage, StructuredResult, ToolCallRequest
 
@@ -34,19 +35,15 @@ class StructuredOutputError(RuntimeError):
     fails schema validation after the repair retry."""
 
 
-class LLMClient:
-    """Thin async wrapper around the OpenAI SDK. Every call site in this
-    codebase goes through here rather than touching `openai` directly, so
-    retries, cost accounting, and structured-output validation are enforced
-    in exactly one place instead of being reimplemented (or forgotten) at
-    each call site."""
+class OpenAIProvider:
+    """Thin async wrapper around the OpenAI SDK implementing `LLMProvider`
+    (app/llm/base.py). Every call site in this codebase goes through here
+    rather than touching `openai` directly, so retries, cost accounting,
+    and structured-output validation are enforced in exactly one place
+    instead of being reimplemented (or forgotten) at each call site."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
-        self.settings = settings or get_settings()
-        self._client = AsyncOpenAI(
-            api_key=self.settings.openai_api_key,
-            timeout=self.settings.openai_request_timeout_seconds,
-        )
+    def __init__(self, api_key: str, timeout_seconds: float = 60.0) -> None:
+        self._client = AsyncOpenAI(api_key=api_key, timeout=timeout_seconds)
 
     @_retry_transient
     async def chat(
@@ -142,6 +139,15 @@ class LLMClient:
         raise StructuredOutputError(
             f"Failed to obtain a schema-valid response from {model} after repair retry"
         )
+
+    async def validate(self) -> None:
+        """Zero-token-cost credential check: listing models requires a
+        valid, authenticated key but doesn't consume the user's quota."""
+        try:
+            async for _ in self._client.models.list():
+                break
+        except AuthenticationError as exc:
+            raise InvalidCredentialError(f"OpenAI rejected this API key: {exc}") from exc
 
 
 def _usage_from_response(response: Any) -> LLMUsage:

@@ -45,8 +45,11 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://agent:agent@postgres:5432/research_agent
       REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: /data/uploads
     ports:
       - "8000:8000"
+    volumes:
+      - uploads:/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -63,7 +66,15 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://agent:agent@postgres:5432/research_agent
       REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: /data/uploads
     command: ["arq", "app.workers.worker.WorkerSettings"]
+    volumes:
+      # Shares the api container's uploaded files -- the worker only reads
+      # UploadedFile.extracted_text (already parsed at upload time) from
+      # Postgres, not the raw files on disk, but the volume is kept mounted
+      # here too so a future feature needing the original file doesn't
+      # require an infra change to add it.
+      - uploads:/data/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,3 +94,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:

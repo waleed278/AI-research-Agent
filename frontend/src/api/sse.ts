@@ -13,18 +13,18 @@ const LINE_SPLIT = /\r\n|\n|\r/;
 /**
  * Subscribes to a job's SSE stream via `fetch` + `ReadableStream` instead of
  * the browser's native `EventSource`. `EventSource` cannot set custom
- * request headers, and this endpoint is authenticated with an `X-API-Key`
- * header (see docs/decisions/0007-frontend-sse-and-proxy.md for why the key
- * isn't just passed as a query param instead). Returns an unsubscribe
- * function that aborts the underlying request.
+ * request headers, and this endpoint is authenticated with an
+ * `Authorization: Bearer` header (see docs/decisions/0007-frontend-sse-and-proxy.md
+ * for why the token isn't just passed as a query param instead). Returns an
+ * unsubscribe function that aborts the underlying request.
  */
-export function streamJobEvents(apiKey: string, jobId: string, handlers: SseHandlers): () => void {
+export function streamJobEvents(token: string, jobId: string, handlers: SseHandlers): () => void {
   const controller = new AbortController();
 
   (async () => {
     try {
       const response = await fetch(jobEventsUrl(jobId), {
-        headers: { "X-API-Key": apiKey },
+        headers: { Authorization: `Bearer ${token}` },
         signal: controller.signal,
       });
       if (!response.ok || !response.body) {

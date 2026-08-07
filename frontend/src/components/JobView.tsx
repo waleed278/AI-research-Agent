@@ -4,11 +4,11 @@ import { ProgressPanel } from "./ProgressPanel";
 import { ReportView } from "./ReportView";
 import { StatusBadge } from "./StatusBadge";
 
-export function JobView({ apiKey, jobId }: { apiKey: string; jobId: string }) {
-  const { data: job, isLoading, isError } = useJob(apiKey, jobId);
-  const cancelJob = useCancelJob(apiKey);
+export function JobView({ token, jobId }: { token: string; jobId: string }) {
+  const { data: job, isLoading, isError } = useJob(token, jobId);
+  const cancelJob = useCancelJob(token);
   const isRunning = job?.status === "queued" || job?.status === "running";
-  const events = useJobEvents(apiKey, jobId, isRunning);
+  const events = useJobEvents(token, jobId, isRunning);
 
   if (isLoading) {
     return <p className="text-sm text-stone-400">Loading job...</p>;
@@ -20,7 +20,12 @@ export function JobView({ apiKey, jobId }: { apiKey: string; jobId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
-        <h1 className="text-lg font-medium text-stone-900">{job.query}</h1>
+        <div>
+          <h1 className="text-lg font-medium text-stone-900">{job.query}</h1>
+          <span className="mt-1 inline-block rounded-full bg-stone-100 px-2 py-0.5 text-xs text-stone-500">
+            {job.llm_provider} · {job.llm_model}
+          </span>
+        </div>
         <div className="flex shrink-0 items-center gap-3">
           <StatusBadge status={job.status} />
           {job.status === "queued" && (

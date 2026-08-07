@@ -29,7 +29,7 @@ from app.agent.state import (
     SynthesizerOutput,
 )
 from app.core.config import get_settings
-from app.llm.client import LLMClient
+from app.llm.providers.openai_provider import OpenAIProvider
 from app.llm.schemas import ChatResult, LLMUsage, StructuredResult, ToolCallRequest
 from app.tools.fetch_url import FetchUrlTool
 from app.tools.registry import ToolRegistry
@@ -63,7 +63,7 @@ class EvalResult(BaseModel):
 
 
 class MockAgentLLM:
-    """Fully offline stand-in for `LLMClient`, used only by `--mock` runs.
+    """Fully offline stand-in for an `LLMProvider`, used only by `--mock` runs.
     It still exercises the real `Orchestrator` and a real `web_search` tool
     call against `MockSearchProvider` -- this proves the eval harness's
     scoring/reporting/gating plumbing end to end without ever touching the
@@ -127,15 +127,19 @@ def load_dataset(path: Path, limit: int | None) -> list[GoldenQuery]:
 
 async def run_one(golden: GoldenQuery, *, mock: bool) -> EvalResult:
     settings = get_settings()
-    llm: LLMClient | MockAgentLLM
+    llm: OpenAIProvider | MockAgentLLM
     if mock:
         llm = MockAgentLLM()
         registry = ToolRegistry([WebSearchTool(MockSearchProvider())])
     else:
-        llm = LLMClient(settings)
+        llm = OpenAIProvider(
+            api_key=settings.openai_api_key, timeout_seconds=settings.llm_request_timeout_seconds
+        )
         registry = ToolRegistry([WebSearchTool(), FetchUrlTool()])
 
-    orchestrator = Orchestrator(llm=llm, registry=registry, settings=settings)  # type: ignore[arg-type]
+    orchestrator = Orchestrator(
+        llm=llm, model=settings.openai_model, registry=registry, settings=settings  # type: ignore[arg-type]
+    )
     start = time.perf_counter()
     try:
         result = await orchestrator.run(
@@ -164,7 +168,9 @@ async def run_one(golden: GoldenQuery, *, mock: bool) -> EvalResult:
     coverage_score = None
     groundedness_score = None
     if not mock:
-        judge_llm = LLMClient(settings)
+        judge_llm = OpenAIProvider(
+            api_key=settings.openai_api_key, timeout_seconds=settings.llm_request_timeout_seconds
+        )
         coverage = await judge_coverage(
             judge_llm, settings.openai_judge_model, golden.query, golden.must_cover, result.report_markdown
         )

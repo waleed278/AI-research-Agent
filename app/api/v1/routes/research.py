@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.deps import enforce_rate_limit, get_arq_redis, get_current_api_key, get_db_session
+from app.api.deps import enforce_rate_limit, get_arq_redis, get_current_user, get_db_session
 from app.core.config import Settings, get_settings
-from app.db.models import ApiKey, JobStatus
+from app.db.models import JobStatus, User
 from app.db.repositories import ResearchJobRepository, TraceEventRepository
 from app.schemas.research import (
     ResearchJobCreateRequest,
@@ -41,12 +41,12 @@ async def create_job(
     body: ResearchJobCreateRequest,
     session: AsyncSession = Depends(get_db_session),
     arq_redis: ArqRedis = Depends(get_arq_redis),
-    api_key: ApiKey = Depends(get_current_api_key),
+    user: User = Depends(get_current_user),
 ) -> ResearchJobCreateResponse:
     """Enqueues a research job and returns immediately -- a thorough research
     run can take 30s-3min, which is well past what a synchronous HTTP
     request should block on. Poll GET /{id} or stream GET /{id}/events."""
-    job = await create_research_job(session, arq_redis, api_key.id, body)
+    job = await create_research_job(session, arq_redis, user.id, body)
     return ResearchJobCreateResponse(id=job.id, status=job.status)
 
 
@@ -54,9 +54,9 @@ async def create_job(
 async def get_job(
     job_id: uuid.UUID,
     session: AsyncSession = Depends(get_db_session),
-    api_key: ApiKey = Depends(get_current_api_key),
+    user: User = Depends(get_current_user),
 ) -> ResearchJobResponse:
-    job = await get_research_job(session, job_id, api_key.id)
+    job = await get_research_job(session, job_id, user.id)
     return to_response(job)
 
 
@@ -65,9 +65,9 @@ async def list_jobs(
     limit: int = Query(default=20, ge=1, le=100),
     before: datetime | None = Query(default=None),
     session: AsyncSession = Depends(get_db_session),
-    api_key: ApiKey = Depends(get_current_api_key),
+    user: User = Depends(get_current_user),
 ) -> ResearchJobListResponse:
-    jobs = await list_research_jobs(session, api_key.id, limit, before)
+    jobs = await list_research_jobs(session, user.id, limit, before)
     next_cursor = jobs[-1].created_at if len(jobs) == limit else None
     return ResearchJobListResponse(items=[to_response(j) for j in jobs], next_cursor=next_cursor)
 
@@ -76,9 +76,9 @@ async def list_jobs(
 async def cancel_job(
     job_id: uuid.UUID,
     session: AsyncSession = Depends(get_db_session),
-    api_key: ApiKey = Depends(get_current_api_key),
+    user: User = Depends(get_current_user),
 ) -> ResearchJobResponse:
-    job = await cancel_research_job(session, job_id, api_key.id)
+    job = await cancel_research_job(session, job_id, user.id)
     return to_response(job)
 
 
@@ -87,14 +87,14 @@ async def stream_job_events(
     job_id: uuid.UUID,
     request: Request,
     session: AsyncSession = Depends(get_db_session),
-    api_key: ApiKey = Depends(get_current_api_key),
+    user: User = Depends(get_current_user),
     settings: Settings = Depends(get_settings),
 ) -> EventSourceResponse:
     """Server-Sent Events feed of a job's trace as it happens -- the live
     view of the agent thinking/searching/reading, as an alternative to
     polling GET /{id}. Closes on its own once the job reaches a terminal
     status or the client disconnects."""
-    await get_research_job(session, job_id, api_key.id)  # 404s / ownership-check up front
+    await get_research_job(session, job_id, user.id)  # 404s / ownership-check up front
     jobs_repo = ResearchJobRepository(session)
     events_repo = TraceEventRepository(session)
     max_duration_seconds = settings.agent_job_timeout_seconds + 30

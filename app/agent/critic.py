@@ -1,11 +1,11 @@
 from app.agent.prompt_loader import load_prompt
 from app.agent.state import CriticVerdict, EvidenceStore
-from app.llm.client import LLMClient
+from app.llm.base import LLMProvider
 from app.llm.schemas import StructuredResult
 
 
 async def critique(
-    llm: LLMClient,
+    llm: LLMProvider,
     model: str,
     query: str,
     sub_questions: list[str],
