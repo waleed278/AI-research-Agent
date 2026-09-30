@@ -1,5 +1,11 @@
 # AI Research & Report Agent
 
+[![CI](https://github.com/waleed278/AI-research-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/waleed278/AI-research-Agent/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-61DAFB?logo=react&logoColor=black)
+![Docker](https://img.shields.io/badge/Infra-Docker-2496ED?logo=docker&logoColor=white)
+
 A production-grade, async, tool-using research agent: give it a question,
 it plans sub-questions, searches and reads the web, critiques its own
 evidence, and writes a cited Markdown report -- as a background job behind
